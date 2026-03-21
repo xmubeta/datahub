@@ -49,11 +49,13 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.stream.Collectors;
 import lombok.Builder;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
@@ -161,7 +163,8 @@ public class DatahubJob {
     EdgeArray outputEdges = outputTuple.getRight();
 
     // Generate and add DataJobInputOutput Aspect
-    generateDataJobInputOutputMcp(inputEdges, outputEdges, config, mcps);
+    generateDataJobInputOutputMcp(
+        inputUrnArray, inputEdges, outputUrnArray, outputEdges, config, mcps);
 
     // Generate and add DataProcessInstance Aspect
     generateDataProcessInstanceMcp(inputUrnArray, outputUrnArray, mcps);
@@ -193,7 +196,9 @@ public class DatahubJob {
   }
 
   private void generateDataJobInputOutputMcp(
+      UrnArray inputUrns,
       EdgeArray inputEdges,
+      UrnArray outputUrns,
       EdgeArray outputEdges,
       DatahubOpenlineageConfig config,
       List<MetadataChangeProposal> mcps) {
@@ -203,8 +208,14 @@ public class DatahubJob {
     if (config.isUsePatch() && (!parentJobs.isEmpty() || !inSet.isEmpty() || !outSet.isEmpty())) {
       DataJobInputOutputPatchBuilder dataJobInputOutputPatchBuilder =
           new DataJobInputOutputPatchBuilder().urn(jobUrn);
+      Set<DatasetUrn> patchOutputUrnSet = new HashSet<>();
+      for (DatahubDataset dataset : outSet) {
+        patchOutputUrnSet.add(dataset.getUrn());
+      }
       for (DatahubDataset dataset : inSet) {
-        dataJobInputOutputPatchBuilder.addInputDatasetEdge(dataset.getUrn());
+        if (!patchOutputUrnSet.contains(dataset.getUrn())) {
+          dataJobInputOutputPatchBuilder.addInputDatasetEdge(dataset.getUrn());
+        }
       }
       for (DatahubDataset dataset : outSet) {
         dataJobInputOutputPatchBuilder.addOutputDatasetEdge(dataset.getUrn());
@@ -244,10 +255,33 @@ public class DatahubJob {
     } else {
       FineGrainedLineageArray fgls = mergeFinegrainedLineages();
       dataJobInputOutput.setFineGrainedLineages(fgls);
-      dataJobInputOutput.setInputDatasetEdges(inputEdges);
-      dataJobInputOutput.setInputDatasets(new DatasetUrnArray());
+
+      // Remove datasets that appear in both inSet and outSet (e.g. Hudi bloom index reads)
+      Set<DatasetUrn> outputUrnSet = new HashSet<>();
+      for (DatahubDataset ds : outSet) {
+        outputUrnSet.add(ds.getUrn());
+      }
+
+      EdgeArray filteredInputEdges = new EdgeArray();
+      for (Edge edge : inputEdges) {
+        if (!outputUrnSet.contains(edge.getDestinationUrn())) {
+          filteredInputEdges.add(edge);
+        }
+      }
+      dataJobInputOutput.setInputDatasetEdges(filteredInputEdges);
+      DatasetUrnArray inputDatasetUrns = new DatasetUrnArray();
+      for (DatahubDataset ds : inSet) {
+        if (!outputUrnSet.contains(ds.getUrn())) {
+          inputDatasetUrns.add(ds.getUrn());
+        }
+      }
+      dataJobInputOutput.setInputDatasets(inputDatasetUrns);
       dataJobInputOutput.setOutputDatasetEdges(outputEdges);
-      dataJobInputOutput.setOutputDatasets(new DatasetUrnArray());
+      DatasetUrnArray outputDatasetUrns = new DatasetUrnArray();
+      for (DatahubDataset ds : outSet) {
+        outputDatasetUrns.add(ds.getUrn());
+      }
+      dataJobInputOutput.setOutputDatasets(outputDatasetUrns);
       DataJobUrnArray parentDataJobUrnArray = new DataJobUrnArray();
       parentDataJobUrnArray.addAll(parentJobs);
 

@@ -165,6 +165,14 @@ scalaVersions.each { sv ->
     // Add the Scala-specific OpenLineage dependency - THIS IS THE KEY PART
     scalaConfig.dependencies.add(project.dependencies.create("io.openlineage:openlineage-spark_${sv}:${openLineageVersion}"))
 
+    // Explicitly include jackson-core/databind/annotations so they get shaded into the fat JAR.
+    // These are normally excluded because Spark's 'provided' configuration pulls them in,
+    // but since we relocate com.fasterxml.jackson -> io.acryl.shaded.jackson the runtime
+    // needs the relocated class files bundled inside the JAR.
+    scalaConfig.dependencies.add(project.dependencies.create("com.fasterxml.jackson.core:jackson-core:$jacksonVersion"))
+    scalaConfig.dependencies.add(project.dependencies.create("com.fasterxml.jackson.core:jackson-databind:$jacksonVersion"))
+    scalaConfig.dependencies.add(project.dependencies.create("com.fasterxml.jackson.core:jackson-annotations:$jacksonVersion"))
+
     scalaConfig.canBeResolved = true
     configurations = [scalaConfig]
 
@@ -177,6 +185,9 @@ scalaVersions.each { sv ->
         .collect {
           it.name
         }
+    // Don't exclude jackson modules since we need them relocated in the shadow jar
+    def jacksonModules = ['jackson-core', 'jackson-databind', 'jackson-annotations'] as Set
+    exclude_modules.removeIf { mod -> jacksonModules.any { mod.contains(it) } }
 
     dependencies {
       exclude(dependency {
@@ -211,6 +222,14 @@ scalaVersions.each { sv ->
     relocate 'ch.qos', 'io.acryl.shaded.ch.qos'
     relocate 'org.springframework', 'io.acryl.shaded.org.springframework'
     relocate 'com.fasterxml.jackson', 'io.acryl.shaded.jackson'
+
+    // Re-relocate classes already shaded by datahub-client's shadow JAR.
+    // datahub-client relocates e.g. com.fasterxml.jackson -> datahub.shaded.jackson,
+    // but this JAR's source code references the original package names which get
+    // rewritten to io.acryl.shaded.*. Without this rule, the actual classes from
+    // datahub-client remain at datahub.shaded.* while references point to
+    // io.acryl.shaded.*, causing NoClassDefFoundError at runtime.
+    relocate 'datahub.shaded', 'io.acryl.shaded'
     relocate 'org.yaml', 'io.acryl.shaded.org.yaml'
     relocate 'net.jcip.annotations', 'io.acryl.shaded.annotations'
     relocate 'javassist', 'io.acryl.shaded.javassist'

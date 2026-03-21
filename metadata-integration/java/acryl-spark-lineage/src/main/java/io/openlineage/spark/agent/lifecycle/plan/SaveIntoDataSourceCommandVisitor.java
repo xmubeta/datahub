@@ -177,6 +177,12 @@ public class SaveIntoDataSourceCommandVisitor
           command.options());
     }
 
+    // Handle Hudi data source - extract dataset info from options to avoid
+    // InvalidTableException when createRelation is called on a new/overwritten table
+    if (command.dataSource().getClass().getName().contains("hudi")) {
+      return buildHudiOutputDatasets(command, schema, lifecycleStateChange);
+    }
+
     if (command
         .dataSource()
         .getClass()
@@ -253,6 +259,37 @@ public class SaveIntoDataSourceCommandVisitor
               return newDs;
             })
         .collect(Collectors.toList());
+  }
+
+  private List<OutputDataset> buildHudiOutputDatasets(
+      SaveIntoDataSourceCommand command,
+      StructType schema,
+      LifecycleStateChange lifecycleStateChange) {
+    scala.collection.immutable.Map<String, String> opts = command.options();
+
+    // Try to build a Hive-style dataset identifier from hoodie sync options
+    Option<String> syncDb = opts.get("hoodie.datasource.hive_sync.database");
+    Option<String> syncTable = opts.get("hoodie.datasource.hive_sync.table");
+    if (syncDb.isDefined() && syncTable.isDefined()) {
+      String namespace = syncDb.get();
+      String name = syncTable.get();
+      log.info("Hudi: using Hive sync info - {}.{}", namespace, name);
+      DatasetIdentifier id = new DatasetIdentifier(namespace + "." + name, "glue");
+      return Collections.singletonList(
+          outputDataset().getDataset(id, schema, lifecycleStateChange));
+    }
+
+    // Fallback: use the path option
+    Option<String> pathOpt = opts.get("path");
+    if (pathOpt.isDefined()) {
+      URI uri = URI.create(pathOpt.get());
+      log.info("Hudi: using path - {}", uri);
+      return Collections.singletonList(
+          outputDataset().getDataset(PathUtils.fromURI(uri), schema, lifecycleStateChange));
+    }
+
+    log.warn("Hudi data source detected but could not extract dataset info from options");
+    return Collections.emptyList();
   }
 
   private StructType getSchema(SaveIntoDataSourceCommand command) {
@@ -334,6 +371,11 @@ public class SaveIntoDataSourceCommandVisitor
     if (command.dataSource().getClass().getName().contains("DeltaDataSource")
         && command.options().contains("path")) {
       return Optional.of(trimPath(command.options().get("path").get()));
+    } else if (command.dataSource().getClass().getName().contains("hudi")) {
+      Option<String> tableName = command.options().get("hoodie.table.name");
+      if (tableName.isDefined()) {
+        return Optional.of(tableName.get());
+      }
     } else if (KustoRelationVisitor.isKustoSource(command.dataSource())) {
       return Optional.ofNullable(command.options().get("kustotable"))
           .filter(Option::isDefined)
