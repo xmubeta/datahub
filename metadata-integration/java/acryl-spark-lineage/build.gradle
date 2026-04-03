@@ -201,6 +201,15 @@ scalaVersions.each { sv ->
     exclude('module-info.class', 'META-INF/versions/**', 'LICENSE', 'NOTICE')
     exclude '**/libzstd-jni.*'
     exclude '**/com_github_luben_zstd_*'
+    // Exclude AWS SDK v2 SPI service files and classes to avoid conflicts with
+    // Glue 5.0's built-in AWS SDK (UrlConnectionSdkHttpService not found error)
+    exclude 'META-INF/services/software.amazon.awssdk.*'
+    exclude 'software/amazon/awssdk/**'
+    // Exclude ANTLR classes to avoid version conflicts with Spark's built-in ANTLR.
+    // ANTLR 4.9.3 in the jar conflicts with Glue 5.0's ANTLR 4.5, causing
+    // ATN deserialization errors in Spark SQL parser.
+    exclude 'org/antlr/**'
+    exclude 'antlr/**'
 
     // Apply all the relocations
     relocate 'avro.com', 'io.acryl.shaded.avro.com'

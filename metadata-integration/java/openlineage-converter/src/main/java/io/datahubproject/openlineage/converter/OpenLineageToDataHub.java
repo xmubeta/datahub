@@ -444,7 +444,15 @@ public class OpenLineageToDataHub {
       datasetUrn.ifPresent(
           urn ->
               downstreamsFields.add(
-                  UrnUtils.getUrn("urn:li:schemaField:" + "(" + urn + "," + field.getKey() + ")")));
+                  UrnUtils.getUrn(
+                      "urn:li:schemaField:"
+                          + "("
+                          + urn
+                          + ","
+                          + (mappingConfig.isLowerCaseDatasetUrns()
+                              ? field.getKey().toLowerCase()
+                              : field.getKey())
+                          + ")")));
 
       LinkedHashSet<String> transformationTexts = new LinkedHashSet<>();
       OpenLineage.StaticDatasetBuilder staticDatasetBuilder =
@@ -471,14 +479,13 @@ public class OpenLineageToDataHub {
                 Optional<DatasetUrn> urn =
                     convertOpenlineageDatasetToDatasetUrn(staticDataset, mappingConfig);
                 if (urn.isPresent()) {
+                  String fieldName =
+                      mappingConfig.isLowerCaseDatasetUrns()
+                          ? inputField.getField().toLowerCase()
+                          : inputField.getField();
                   Urn datasetFieldUrn =
                       UrnUtils.getUrn(
-                          "urn:li:schemaField:"
-                              + "("
-                              + urn.get()
-                              + ","
-                              + inputField.getField()
-                              + ")");
+                          "urn:li:schemaField:" + "(" + urn.get() + "," + fieldName + ")");
                   upstreamFields.add(datasetFieldUrn);
                   if (upstreams.stream()
                       .noneMatch(
